@@ -1,0 +1,983 @@
+"""
+Visualizaciones sobre comportamiento legislativo en el Senado mexicano
+LXVI Legislatura – Primer año (2024–2025)
+
+Este script genera una serie de gráficos interactivos con base en los datos de votaciones nominales 
+del Senado, organizados en dos archivos Excel (Book1.xlsx y wide.xlsx). Los gráficos exploran:
+
+1. Niveles de mayoría por votación (unánime, calificada, absoluta)
+2. Distribución del voto de la oposición (unificada o dividida)
+3. Posturas mayoritarias de PAN, PRI y MC
+4. Composición de coaliciones opositoras en votaciones clave
+5. Disidencia legislativa individual y rupturas internas por bancada
+6. Índices de indisciplina parlamentaria por legislador y partido
+
+Las visualizaciones se apoyan en las bibliotecas: pandas, plotly, PIL, matplotlib y os.
+"""
+
+##Gráfico 0---------#
+import pandas as pd
+import plotly.graph_objects as go
+from datetime import datetime
+
+# Cargar archivo “wide”
+
+# Convertir fechas escritas en español
+meses = {
+    'enero': '01', 'febrero': '02', 'marzo': '03', 'abril': '04',
+    'mayo': '05', 'junio': '06', 'julio': '07', 'agosto': '08',
+    'septiembre': '09', 'octubre': '10', 'noviembre': '11', 'diciembre': '12'
+}
+
+def convertir_fecha_es(fecha_str):
+    if not isinstance(fecha_str, str):
+        return pd.NaT
+    fecha_str = fecha_str.replace("//", "").strip().lower()
+    for esp, num in meses.items():
+        if esp in fecha_str:
+            return pd.to_datetime(fecha_str.replace(esp, num), format="%d/%m/%Y", errors='coerce')
+    return pd.NaT
+
+df["Fecha"] = df["Fecha"].apply(convertir_fecha_es)
+df = df.dropna(subset=["Fecha", "mayoria"])
+
+# Colores por reglas
+def asignar_color(val):
+    if val == 1:
+        return "green"
+    elif val <= 0.66:
+        return "red"
+    else:
+        return "blue"
+
+df["color"] = df["mayoria"].apply(asignar_color)
+df["simbolo"] = df["cpeum"].apply(lambda x: "x" if x == 1 else "circle")
+
+# Separar puntos y taches
+df_circles = df[df["simbolo"] == "circle"]
+df_taches = df[df["simbolo"] == "x"]
+
+# Crear figura
+fig = go.Figure()
+
+# Puntos
+fig.add_trace(go.Scatter(
+    x=df_circles["Fecha"],
+    y=df_circles["mayoria"],
+    mode="markers",
+    marker=dict(size=10, color=df_circles["color"], opacity=0.55, symbol="circle"),
+    hovertemplate=("Fecha: %{x|%d-%b-%Y}<br>Mayoría: %{y:.2%}<br>Tema: %{customdata[0]}<extra></extra>"),
+    customdata=df_circles[["resumen"]],
+    showlegend=False
+))
+
+# Taches (constitucionales)
+fig.add_trace(go.Scatter(
+    x=df_taches["Fecha"],
+    y=df_taches["mayoria"],
+    mode="markers",
+    marker=dict(size=14, color=df_taches["color"], opacity=0.55, symbol="x"),
+    hovertemplate=("Fecha: %{x|%d-%b-%Y}<br>Mayoría: %{y:.2%}<br>Tema: %{customdata[0]}<extra></extra>"),
+    customdata=df_taches[["resumen"]],
+    showlegend=False
+))
+
+# Leyenda personalizada
+fig.add_trace(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(size=10, color='green', symbol="circle", opacity=0.55), name='Votación unánime'))
+fig.add_trace(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(size=10, color='blue', symbol="circle", opacity=0.55), name='Mayoría calificada'))
+fig.add_trace(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(size=10, color='red', symbol="circle", opacity=0.55), name='Mayoría absoluta'))
+fig.add_trace(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(size=14, color='black', symbol="x", opacity=0.55), name='Reforma Constitucional'))
+
+# Línea horizontal 66% mayoría calificada
+fig.add_shape(type="line", xref="paper", yref="y", x0=0, x1=1, y0=0.66, y1=0.66, line=dict(color="black", width=2, dash="dash"))
+
+# Fechas clave para divisiones
+inicio_etapa2 = datetime(2025, 1, 1)
+inicio_etapa3 = datetime(2025, 5, 1)
+
+# Líneas verticales por periodo
+fig.add_shape(type="line", xref="x", yref="paper", x0=inicio_etapa2, x1=inicio_etapa2, y0=0, y1=1, line=dict(color="black", width=1))
+fig.add_shape(type="line", xref="x", yref="paper", x0=inicio_etapa3, x1=inicio_etapa3, y0=0, y1=1, line=dict(color="black", width=1))
+
+# Fondos de etapas
+x_start = pd.Timestamp("2024-08-01")
+x_end = pd.Timestamp("2025-08-01")
+
+fig.add_shape(type="rect", xref="x", yref="paper", x0=x_start, x1=inicio_etapa2, y0=0, y1=1, fillcolor="#ddeaff", opacity=0.4, layer="below", line_width=0)
+fig.add_shape(type="rect", xref="x", yref="paper", x0=inicio_etapa2, x1=inicio_etapa3, y0=0, y1=1, fillcolor="#eae4f8", opacity=0.4, layer="below", line_width=0)
+fig.add_shape(type="rect", xref="x", yref="paper", x0=inicio_etapa3, x1=x_end, y0=0, y1=1, fillcolor="#ffe4cc", opacity=0.4, layer="below", line_width=0)
+fig.update_xaxes(range=[x_start, x_end])
+
+# Título en dos líneas
+titulo_html = (
+    "<span style='font-size:18px; font-weight:bold; color:black;'>"
+    "Mayorías legislativas en votaciones"
+    "</span><br>"
+    "<span style='font-size:14px; color:black;'>"
+    "Senado de la República (LXVI Legislatura, 1er año)"
+    "</span>"
+)
+
+# Layout final
+fig.update_layout(
+    title=dict(
+        text=titulo_html,
+        x=0.5,
+        xanchor='center',
+        y=0.95,
+        yanchor='top'
+    ),
+    xaxis=dict(title=None, showgrid=True),
+    yaxis=dict(
+        title="Nivel de mayoría",
+        range=[0.5, 1.02],
+        tickvals=[i / 100 for i in range(60, 101, 10)],
+        tickformat=".0%",
+        tickfont=dict(size=12)
+    ),
+    height=600,
+    width=950,
+    showlegend=True
+)
+
+fig.show()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+##Gráfico 1###
+import plotly.graph_objects as go
+import os
+
+
+# Datos base no hay carga de archivos externos en este gráfico
+total_votaciones = 192
+val_unanimes = 90
+val_oposicion_unificada = 13
+val_oposicion_dividida = 89
+val_no_unanimes = val_oposicion_unificada + val_oposicion_dividida
+
+labels = [
+    "Votaciones totales<br>(192)",
+    "Unánimes<br>(90)",
+    "No unánimes<br>(102)",
+    "Oposición unificada<br>(13)",
+    "Oposición dividida<br>(89)"
+]
+
+parents = [
+    "",
+    "Votaciones totales<br>(192)",
+    "Votaciones totales<br>(192)",
+    "No unánimes<br>(102)",
+    "No unánimes<br>(102)"
+]
+
+values = [total_votaciones, val_unanimes, val_no_unanimes, val_oposicion_unificada, val_oposicion_dividida]
+
+def pct_total(v): return f"{v / total_votaciones * 100:.1f}% del total"
+def pct_no_unanimes(v): return f"{v / val_no_unanimes * 100:.1f}% de las no unánimes"
+
+hovertexts = [
+    f"Votaciones totales: {total_votaciones}",
+    f"Votaciones unánimes: {val_unanimes}<br>{pct_total(val_unanimes)}<br>Todos los partidos votan a favor",
+    f"Votaciones no unánimes: {val_no_unanimes}<br>{pct_total(val_no_unanimes)}",
+    f"Oposición unificada (PAN, PRI, MC): {val_oposicion_unificada}<br>{pct_total(val_oposicion_unificada)}<br>{pct_no_unanimes(val_oposicion_unificada)}",
+    f"Oposición dividida: {val_oposicion_dividida}<br>{pct_total(val_oposicion_dividida)}<br>{pct_no_unanimes(val_oposicion_dividida)}"
+]
+
+colores = {
+    "Votaciones totales<br>(192)": "white",
+    "Unánimes<br>(90)": "#1b9e77",
+    "No unánimes<br>(102)": "#3182bd",
+    "Oposición unificada<br>(13)": "#08306b",
+    "Oposición dividida<br>(89)": "#41b6c4"
+}
+
+fig = go.Figure(go.Sunburst(
+    labels=labels,
+    parents=parents,
+    values=values,
+    branchvalues="total",
+    hoverinfo='text',
+    hovertext=hovertexts,
+    marker=dict(colors=[colores[l] for l in labels]),
+    insidetextorientation='tangential',
+    textfont=dict(size=13)
+))
+
+fig.update_layout(
+    title=dict(
+        text="<span style='font-size:18px; color:black;'><b>Mapa de votaciones: apoyo, disenso y unidad opositora</b></span><br><span style='font-size:14px; color:black;'>Senado de la República (LXVI Legislatura, 1er año)</span>",
+        x=0.5,
+        xanchor='center',
+        y=0.95,
+        yanchor='top'
+    ),
+    margin=dict(t=100, l=0, r=0, b=0),
+    width=720,
+    height=620,
+    showlegend=False
+)
+
+# Mostrar en el kernel
+fig.show()
+
+####Gráfico 2#------
+import pandas as pd
+import plotly.graph_objects as go
+from matplotlib.colors import to_rgb
+import colorsys
+from PIL import Image
+import os
+
+# Ruta base
+
+# Leer datos
+# Cargar archivo “Book1” hoja 2
+
+# Leer logos
+logos = {
+    'PAN': Image.open(os.path.join(carpeta_base, "pan.png")),
+    'PRI': Image.open(os.path.join(carpeta_base, "pri.png")),
+    'MC': Image.open(os.path.join(carpeta_base, "mc.png"))
+}
+
+# Reorganizar datos
+df_long = pd.melt(df, value_vars=['MC', 'PAN', 'PRI'], var_name='partido', value_name='postura')
+conteo = df_long.groupby(['partido', 'postura']).size().reset_index(name='cuenta')
+total_por_partido = conteo.groupby('partido')['cuenta'].transform('sum')
+conteo['porcentaje'] = conteo['cuenta'] / total_por_partido * 100
+
+# Orden
+orden_partidos = ['PAN', 'PRI', 'MC']
+orden_posturas = ['Contra', 'Ausencia', 'Abstención', 'Favor']
+
+# Colores base
+colores_base = {
+    'MC': '#ff6600',
+    'PAN': '#0066cc',
+    'PRI': 'red'
+}
+
+# Degradado de barras
+def generar_degradado(hex_color, niveles=4):
+    r, g, b = to_rgb(hex_color)
+    h, l, s = colorsys.rgb_to_hls(r, g, b)
+    degradado = [colorsys.hls_to_rgb(h, max(0.15, l * (0.4 + 0.15*i)), s) for i in range(niveles)]
+    degradado = degradado[::-1]
+    return [f'rgb({int(r*255)}, {int(g*255)}, {int(b*255)})' for r, g, b in degradado]
+
+colores_partido = {p: generar_degradado(c) for p, c in colores_base.items()}
+
+# Crear figura
+fig = go.Figure()
+
+for i, postura in enumerate(orden_posturas):
+    for partido in orden_partidos:
+        fila = conteo.query("partido == @partido and postura == @postura")
+        y = fila['porcentaje'].values[0] if not fila.empty else 0
+        cuenta = fila['cuenta'].values[0] if not fila.empty else 0
+        voto_label = "votación" if cuenta == 1 else "votaciones"
+        fig.add_trace(go.Bar(
+            x=[partido],
+            y=[y],
+            marker_color=colores_partido[partido][i],
+            showlegend=False,
+            hovertemplate=f"<b>{partido}</b><br>{postura}: {cuenta} {voto_label}<br>{y:.1f}%<extra></extra>"
+        ))
+
+# Parámetros para logos
+TAM_X = 0.3
+TAM_Y = 2
+logo_y = -0.19  # Subimos ligeramente los logos
+
+for i, partido in enumerate(orden_partidos):
+    # Quitamos las siglas
+    # fig.add_annotation(
+    #     x=i,
+    #     y=sigla_y,
+    #     text=partido,
+    #     showarrow=False,
+    #     xref='x',
+    #     yref='paper',
+    #     font=dict(size=12, color='black'),
+    #     align='center'
+    # )
+
+    # Logos debajo
+    fig.add_layout_image(dict(
+        source=logos[partido],
+        x=i,
+        y=logo_y,
+        sizex=TAM_X,
+        sizey=TAM_Y,
+        xref="x",
+        yref="paper",
+        xanchor="center",
+        yanchor="bottom",
+        layer="above"
+    ))
+
+# Título con primera línea en negritas
+titulo_html = (
+    "<span style='font-size:17px; color:black; font-weight:bold;'>Postura mayoritaria de bancadas opositoras (en votaciones no unánimes)</span><br>"
+    "<span style='font-size:14px; color:black;'>Senado de la República (LXVI Legislatura, 1er año)</span>"
+)
+
+# Layout
+fig.update_layout(
+    barmode='stack',
+    title=dict(
+        text=titulo_html,
+        x=0.5,
+        xanchor='center',
+        y=0.95,
+        yanchor='top'
+    ),
+    xaxis=dict(
+        title='',
+        tickvals=list(range(len(orden_partidos))),
+        ticktext=['', '', ''],  # etiquetas vacías
+        tickfont=dict(size=13)
+    ),
+    yaxis=dict(title='', ticksuffix='%', range=[0, 100]),
+    font=dict(size=12),
+    margin=dict(t=100, b=120),
+    width=720,
+    height=540,
+    showlegend=False
+)
+
+fig.show()
+
+##Gráfico 3##--
+import plotly.graph_objects as go
+from PIL import Image
+import os
+
+# para este gráfico no se cargan archivos de datos externos (solo logos)
+
+# Ruta a los logos
+logos = {
+    'PAN': Image.open(os.path.join(carpeta_base, "pan.png")),
+    'PRI': Image.open(os.path.join(carpeta_base, "pri.png")),
+    'MC': Image.open(os.path.join(carpeta_base, "mc.png"))
+}
+
+# Colores oficiales
+logos_colores = {
+    'PAN': '#0066cc',
+    'PRI': 'red',
+    'MC': '#ff6600'
+}
+
+# Datos: nombre original, valor
+barras = [
+    ('PAN solo', 4),
+    ('PRI solo', 5),
+    ('MC solo', 2),
+    ('PAN+PRI', 6),
+    ('MC+PAN', 3),
+    ('MC+PRI', 2),
+    ('MC+PAN+PRI', 13)
+]
+
+etiquetas_x = [''] * len(barras)
+orden_partidos = ['PAN', 'PRI', 'MC']
+total_votaciones = 35
+
+# Parámetros
+TAM_X = 0.72
+TAM_Y = 10
+y_pos = -5.8
+delta_duo = 0.16
+delta_trio = 0.25
+
+# Crear figura
+fig = go.Figure()
+
+# Barras
+for i, (etiqueta_original, valor) in enumerate(barras):
+    porcentaje = valor / total_votaciones * 100
+    hover_label = etiqueta_original.replace(" solo", " (solo)")
+    voto_label = "votación" if valor == 1 else "votaciones"
+
+    if 'solo' in etiqueta_original:
+        partido = etiqueta_original.split()[0]
+        fig.add_trace(go.Bar(
+            x=[i],
+            y=[porcentaje],
+            marker=dict(
+                color=logos_colores[partido],
+                line=dict(width=1, color='black')  # borde negro delgado
+            ),
+            hovertemplate=f'{hover_label}<br>{valor} {voto_label}<br>{porcentaje:.1f}%<extra></extra>',
+        ))
+
+    else:
+        partidos = etiqueta_original.split('+')
+        if len(partidos) == 2:
+            fg, bg = logos_colores[partidos[0]], logos_colores[partidos[1]]
+        elif len(partidos) == 3:
+            fg = logos_colores[partidos[0]]
+            bg = "#cccccc"  # Fondo neutro cuando son tres partidos
+
+        fig.add_trace(go.Bar(
+            x=[i],
+            y=[porcentaje],
+            marker=dict(
+                color='white',
+                line=dict(width=1, color='black'),
+                pattern=dict(
+                    shape="/",
+                    fgcolor=fg,
+                    bgcolor=bg,
+                    solidity=0.6,
+                    size=10
+                )
+            ),
+            hovertemplate=f'{hover_label}<br>{valor} {voto_label}<br>{porcentaje:.1f}%<extra></extra>',
+        ))
+# Logos debajo de barras
+for i, (etiqueta_original, _) in enumerate(barras):
+    partidos_presentes = etiqueta_original.replace(' solo', '').split('+')
+    partidos_ordenados = [p for p in orden_partidos if p in partidos_presentes]
+
+    if len(partidos_ordenados) == 1:
+        fig.add_layout_image(dict(
+            source=logos[partidos_ordenados[0]],
+            x=i,
+            y=y_pos,
+            sizex=TAM_X,
+            sizey=TAM_Y,
+            xref="x",
+            yref="y",
+            xanchor="center",
+            yanchor="middle",
+            layer="above"
+        ))
+    elif len(partidos_ordenados) == 2:
+        desplazamientos = [-delta_duo, delta_duo]
+        for p, dx in zip(partidos_ordenados, desplazamientos):
+            fig.add_layout_image(dict(
+                source=logos[p],
+                x=i + dx,
+                y=y_pos,
+                sizex=TAM_X,
+                sizey=TAM_Y,
+                xref="x",
+                yref="y",
+                xanchor="center",
+                yanchor="middle",
+                layer="above"
+            ))
+    elif len(partidos_ordenados) == 3:
+        desplazamientos = [-delta_trio * 1.2, 0, delta_trio * 1.2]
+        for p, dx in zip(partidos_ordenados, desplazamientos):
+            fig.add_layout_image(dict(
+                source=logos[p],
+                x=i + dx,
+                y=y_pos,
+                sizex=TAM_X,
+                sizey=TAM_Y,
+                xref="x",
+                yref="y",
+                xanchor="center",
+                yanchor="middle",
+                layer="above"
+            ))
+
+# Título
+titulo_html = (
+    "<span style='font-size:18px; color:black; font-weight:bold;'>Participación opositora en votaciones contra la 4T (por partido y coalición)</span><br>"
+    "<span style='font-size:14px; color:black;'>Senado de la República (LXVI Legislatura, 1er año)</span>"
+)
+
+# Layout
+fig.update_layout(
+    title=dict(
+        text=titulo_html,
+        x=0.5,
+        xanchor='center',
+        y=0.95,
+        yanchor='top'
+    ),
+    xaxis=dict(
+        title=None,
+        tickvals=list(range(len(barras))),
+        ticktext=etiquetas_x,
+        showticklabels=False
+    ),
+    yaxis=dict(
+        title='',
+        tickvals=[i for i in range(0, 101, 10)],
+        ticksuffix='%',
+        range=[-12, 105]
+    ),
+    width=950,
+    height=580,
+    showlegend=False,
+    margin=dict(t=100, b=80)
+)
+
+fig.add_shape(
+    type="rect",
+    xref="paper", yref="y",
+    x0=0, x1=1, y0=-12, y1=-.01,
+    fillcolor="white",
+    line=dict(width=0),
+    layer="below"
+)
+
+fig.show()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#Gráfico 4#
+import pandas as pd
+import plotly.graph_objects as go
+import matplotlib.colors as mcolors
+from PIL import Image
+import os
+
+# Leer datos el archivo de referencia es Book1 hoja 1
+ruta_datos = os.path.join(carpeta_base, "Book1.xlsx")
+df = pd.read_excel(ruta_datos)
+
+# Leer logos
+logos = {
+    'MORENA': Image.open(os.path.join(carpeta_base, "morena.png")),
+    'PT': Image.open(os.path.join(carpeta_base, "pt.png")),
+    'PVEM': Image.open(os.path.join(carpeta_base, "pvem.png")),
+    'PAN': Image.open(os.path.join(carpeta_base, "pan.png")),
+    'PRI': Image.open(os.path.join(carpeta_base, "pri.png")),
+    'MC': Image.open(os.path.join(carpeta_base, "mc.png"))
+}
+
+# Limpieza
+df = df[df['Partido'] != 'IND'].copy()
+df['nuevo_nivel'] = pd.to_numeric(df['nuevo_nivel'], errors='coerce')
+df['Partido'] = df['Partido'].str.strip()
+df['IdVotacion'] = pd.to_numeric(df['IdVotacion'], errors='coerce')
+
+# Orden
+orden_partidos = ['MORENA', 'PT', 'PVEM', 'PAN', 'PRI', 'MC']
+orden_tipos = ['Abierta', 'Matizada']
+
+# Disidencias
+df_dis = df[df['nuevo_nivel'].isin([1, 2])].copy()
+df_dis['Tipo'] = df_dis['nuevo_nivel'].map({1: 'Matizada', 2: 'Abierta'})
+df_dis['Tipo'] = pd.Categorical(df_dis['Tipo'], categories=orden_tipos, ordered=True)
+
+# Tablas
+tabla_abs = df_dis.groupby(['Partido', 'Tipo']).size().unstack(fill_value=0)[orden_tipos]
+suma_disidencias = tabla_abs.sum(axis=1)
+tabla_prop = tabla_abs.div(df.groupby('Partido').size(), axis=0).fillna(0)
+
+# Votaciones con disidencia
+grupo = df.groupby(['Partido', 'IdVotacion'])
+tiene_disidencia = grupo['nuevo_nivel'].apply(lambda x: x.isin([1, 2]).any())
+por_partido = tiene_disidencia.groupby('Partido')
+total_votaciones = por_partido.size()
+votaciones_con_dis = por_partido.sum()
+porc_con_disidencia = (votaciones_con_dis / total_votaciones).reindex(orden_partidos).fillna(0)
+
+# Colores
+colores_base = {
+    "MORENA": "#660033",
+    "PT": "#ba0101",
+    "PVEM": "#33cc33",
+    "PAN": "#0066cc",
+    "PRI": "red",
+    "MC": "#ff6600"
+}
+
+def aclarar(color_hex, factor=0.5):
+    r, g, b = mcolors.to_rgb(color_hex)
+    aclarado = [min(1, x + (1 - x) * factor) for x in (r, g, b)]
+    return f'rgb({int(aclarado[0]*255)}, {int(aclarado[1]*255)}, {int(aclarado[2]*255)})'
+
+# Crear figura
+fig = go.Figure()
+
+# Parámetros logos
+TAM_X = .4
+TAM_Y = 2
+y_pos = -0.19  # Subimos ligeramente los logos
+
+# Barras stacked con hover mejorado
+for tipo in orden_tipos:
+    for partido in orden_partidos:
+        valor = tabla_prop.loc[partido, tipo] if partido in tabla_prop.index else 0
+        casos_tipo = tabla_abs.loc[partido, tipo] if partido in tabla_abs.index else 0
+        total_dis = suma_disidencias.get(partido, 0)
+        pct_interno = (casos_tipo / total_dis * 100) if total_dis > 0 else 0
+
+        color = colores_base[partido] if tipo == 'Abierta' else aclarar(colores_base[partido], 0.5)
+
+        fig.add_trace(go.Bar(
+            x=[partido],
+            y=[valor],
+            marker_color=color,
+            showlegend=False,
+            hovertemplate=(
+                f"{partido}<br>{tipo}: {casos_tipo} casos "
+                f"({pct_interno:.1f}% del total del partido)<extra></extra>"
+            )
+        ))
+
+# Línea negra con hover mejorado
+fig.add_trace(go.Scatter(
+    x=orden_partidos,
+    y=[porc_con_disidencia.get(p, 0) for p in orden_partidos],
+    mode='lines+markers',
+    yaxis='y2',
+    line=dict(color='black', width=2),
+    marker=dict(size=6),
+    showlegend=False,
+    hovertemplate=[
+        f"{p}<br>{int(votaciones_con_dis.get(p, 0))} votaciones con al menos una ruptura<br>{porc_con_disidencia.get(p, 0):.1%} del total del partido"
+        for p in orden_partidos
+    ]
+))
+
+# Logos (sin siglas)
+for i, partido in enumerate(orden_partidos):
+    fig.add_layout_image(dict(
+        source=logos[partido],
+        x=i,
+        y=y_pos,
+        sizex=TAM_X,
+        sizey=TAM_Y,
+        xref="x",
+        yref="paper",
+        xanchor="center",
+        yanchor="bottom",
+        layer="above"
+    ))
+
+# Título con primera línea en negritas
+titulo_html = (
+    "<span style='font-size:18px; color:black; font-weight:bold;'>Disidencia parlamentaria: votos individuales y eventos de ruptura en bancadas</span><br>"
+    "<span style='font-size:14px; color:black;'>Senado de la República (LXVI Legislatura, 1er año)</span>"
+)
+# Layout final
+fig.update_layout(
+    title=dict(
+        text=titulo_html,
+        x=0.5,
+        xanchor='center',
+        y=0.95,
+        yanchor='top'
+    ),
+    barmode='stack',
+    xaxis=dict(
+        title='',
+        tickvals=list(range(len(orden_partidos))),
+        ticktext=[''] * len(orden_partidos)  # Quitamos siglas del eje x
+    ),
+    yaxis=dict(
+        title="Actos individuales de voto contra la bancada",
+        tickformat='.0%',
+        range=[0, 0.05]
+    ),
+    yaxis2=dict(
+        title="Votaciones con al menos una disidencia",
+        overlaying='y',
+        side='right',
+        tickformat='.0%',
+        range=[0, 0.5],
+        showgrid=False
+    ),
+    width=950,
+    height=540,
+    margin=dict(t=100, b=120),
+    showlegend=False
+)
+
+# Mostrar
+fig.show()
+
+
+
+
+
+
+
+
+#Gráfico 5#
+import pandas as pd
+import plotly.graph_objects as go
+from PIL import Image
+import os
+
+# Leer datos el archivo de referencia es Book1 hoja llamada “disciplina_ind”
+# Carga de datos
+ruta_datos = os.path.join(carpeta_base, "Book1.xlsx")
+
+df = pd.read_excel(ruta_datos, sheet_name="disciplina_ind")
+
+logos = {
+    "MORENA": Image.open(os.path.join(carpeta_base, "morena.png")),
+    "PT": Image.open(os.path.join(carpeta_base, "pt.png")),
+    "PVEM": Image.open(os.path.join(carpeta_base, "pvem.png")),
+    "PAN": Image.open(os.path.join(carpeta_base, "pan.png")),
+    "PRI": Image.open(os.path.join(carpeta_base, "pri.png")),
+    "MC": Image.open(os.path.join(carpeta_base, "mc.png")),
+}
+
+#  Limpieza
+df = df[df["partido"] != "IND"].copy()
+df["partido"] = df["partido"].str.upper()
+df["percentil_index1"] = pd.qcut(df["index1"], q=10, labels=False, duplicates="drop")
+df_indisciplina = df[df["percentil_index1"] > 0].copy()
+
+# Configuración
+partido_orden = [p for p in ["MORENA", "PT", "PVEM", "PAN", "PRI", "MC"] if p in df_indisciplina["partido"].unique()]
+partido_colores = {
+    "MORENA": "#660033",
+    "PT": "#ba0101",
+    "PVEM": "#33cc33",
+    "PAN": "#0066cc",
+    "PRI": "red",
+    "MC": "#ff6600",
+}
+
+barra_alto = 0.42
+fig = go.Figure()
+
+# Título HTML centrado 
+titulo_html = (
+    "<span style='font-size:18px; color:black;'><b>Índice de indisciplina ponderada por bancada</b></span><br>"
+    "<span style='font-size:14px; color:black;'>Senado de la República (LXVI Legislatura, 1er año)</span>"
+)
+
+#Barras por senador y medias 
+for i, partido in enumerate(partido_orden):
+    datos = df_indisciplina[df_indisciplina["partido"] == partido]
+    color = partido_colores[partido]
+
+    # Rectángulo de fondo
+    fig.add_shape(
+        type="rect",
+        x0=0, x1=10,
+        y0=i - barra_alto, y1=i + barra_alto,
+        fillcolor=color,
+        opacity=0.25,
+        layer="below",
+        line=dict(color="black", width=1.5)
+    )
+
+    for _, row in datos.iterrows():
+        x_val = row["index1"] * 10
+
+        # Línea de indisciplina
+        fig.add_trace(go.Scatter(
+            x=[x_val, x_val],
+            y=[i - barra_alto, i + barra_alto],
+            mode="lines",
+            line=dict(color=color, width=2.5),
+            hoverinfo="text",
+            name=row["senaduría"],
+            showlegend=False,
+            text=f"{row['senaduría']}<br>Partido: {row['partido']}<br>Indisciplina: {x_val:.1f} / 10<br>Votaciones: {row['votos']}",
+            hoverlabel=dict(bgcolor=color, font=dict(color="white"))
+        ))
+
+        # Punto invisible para mejorar el hover
+        fig.add_trace(go.Scatter(
+            x=[x_val],
+            y=[i],
+            mode="markers",
+            marker=dict(size=20, color='rgba(0,0,0,0)'),
+            hoverinfo="text",
+            showlegend=False,
+            text=f"{row['senaduría']}<br>Partido: {row['partido']}<br>Indisciplina: {x_val:.1f} / 10<br>Votaciones: {row['votos']}",
+            hoverlabel=dict(bgcolor=color, font=dict(color="white"))
+        ))
+
+    # Línea negra para la media
+    media = datos["index1"].mean() * 10
+    fig.add_trace(go.Scatter(
+        x=[media, media],
+        y=[i - barra_alto, i + barra_alto],
+        mode="lines",
+        line=dict(color="black", width=3),
+        hoverinfo="skip",
+        showlegend=False
+    ))
+
+    # Triángulo en la media
+    fig.add_trace(go.Scatter(
+        x=[media],
+        y=[i - barra_alto - 0.05],
+        mode="markers",
+        marker=dict(symbol="triangle-down", size=12, color="black"),
+        hoverinfo="text",
+        name=f"Media {partido}",
+        showlegend=False,
+        text=f"Media de indisciplina<br>{partido}: {media:.1f} / 10",
+        hoverlabel=dict(bgcolor="white", font=dict(color="black"))
+    ))
+
+#  Línea punteada en 5.0 (mitad)
+fig.add_shape(
+    type="line",
+    x0=5, x1=5,
+    y0=-0.5, y1=len(partido_orden) - 0.5,
+    line=dict(color="black", width=1.5, dash="dash"),
+    layer="above"
+)
+
+# Línea base inferior
+fig.add_shape(
+    type="line",
+    x0=0, x1=10,
+    y0=len(partido_orden) - 0.5,
+    y1=len(partido_orden) - 0.5,
+    line=dict(color="black", width=1.2),
+    layer="above"
+)
+
+#  Tiks y etiquetas 
+for x in range(0, 11):
+    fig.add_shape(
+        type="line",
+        x0=x, x1=x,
+        y0=len(partido_orden) - 0.5,
+        y1=len(partido_orden) - 0.5 + 0.06,
+        line=dict(color="black", width=1),
+        layer="above"
+    )
+    fig.add_annotation(
+        x=x,
+        y=len(partido_orden) - 0.5 + 0.08,
+        text=f"{x}",
+        showarrow=False,
+        font=dict(color="black", size=11),
+        xanchor="center",
+        yanchor="top"
+    )
+
+#  Logos a la izquierda como etiquetas 
+for i, partido in enumerate(partido_orden):
+    fig.add_layout_image(dict(
+        source=logos[partido],
+        x=-0.02,  # más a la izquierda del área visible
+        y=i,
+        xref="paper",
+        yref="y",
+        sizex=0.09,
+        sizey=0.6,
+        xanchor="right",
+        yanchor="middle",
+        layer="above"
+    ))
+
+#  Layout final 
+fig.update_layout(
+    title=dict(
+        text=titulo_html,
+        x=0.5,
+        xanchor="center",
+        yanchor="top"
+    ),
+    xaxis=dict(
+        range=[0, 10],
+        showgrid=False,
+        showticklabels=False
+    ),
+    yaxis=dict(
+        tickmode="array",
+        tickvals=list(range(len(partido_orden))),
+        ticktext=[""] * len(partido_orden),  # ← ya no hay etiquetas de texto, solo logos
+        autorange="reversed",
+        showgrid=False,
+        zeroline=False
+    ),
+    height=700,
+    margin=dict(l=100, r=40, t=80, b=20),
+    plot_bgcolor="white"
+)
+
+#  Nota al pie 
+fig.add_annotation(
+    text="<b>Nota:</b> Se muestran exclusivamente las senadurías con al menos un voto de indisciplina (abierta, sutil o moderada). Cada línea representa un legislador.",
+    x=1,
+    y=-0.035,
+    xref="paper",
+    yref="paper",
+    showarrow=False,
+    font=dict(size=11, color="black"),
+    xanchor="right",
+    yanchor="bottom"
+)
+
+fig.show()
+
